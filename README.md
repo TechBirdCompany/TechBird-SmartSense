@@ -1,5 +1,6 @@
 # Introduction
 TechBird-SmartSense is an IoT device with a 4-channel 12-Bit ADC, to measure up to 4 temperatures. In addition it also provides an internal temperature sensore for ambiant temperatures.
+
 <img src="Pictures/SmartSense_ProductPic.png" alt="Bild" height="300; width: auto;">
 
 # Features
