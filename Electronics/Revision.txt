@@ -1,0 +1,13 @@
+001	Initial Schematic
+002	Changed FRAM type to 3.3V variant
+	Changed Connector for external NTCs
+	Switched 3.3V reference voltage
+	Switched to USB Type-C
+	Added additional LEDs
+	Switched battery to supercap
+
+ToDo: 
+	Consider switching ADC Type to a not differential one
+	Consider adding an RGB LED for better error codes
+	Route GPIOs to RTC Domain
+	Replace main connector 
