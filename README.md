@@ -11,7 +11,7 @@ TechBird-SmartSense is an IoT device with a 4-channel 12-Bit ADC, to measure up 
 - RV-3028-C7: Internal RTC
 - TMP1075D: Internal Temperature Sensor
 - USB Type-C for communication and charging
-<img src="Pictures/SmartSense_002.jpg" alt="Bild" height="300; width: auto;">
+<img src="Pictures/SmartSense_002.JPG" alt="Bild" height="300; width: auto;">
 
 # Software
 - Use at your own risk!
