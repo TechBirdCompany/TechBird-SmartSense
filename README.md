@@ -5,7 +5,7 @@ TechBird-SmartSense is an IoT device with a 4-channel 12-Bit ADC, to measure up 
 
 # Features
 - ESP32-C6-MINI-1-N4: As SoC
-- EEMB LP103454: 2000 mAh Lipo Battery
+- EEMB LP103454: 2000 mAh LiPo Battery
   - 7 days of uptime with 10 seconds time gab, and ringbuffer size of 60
 - ADS1015IDGSR: 2 Differntiall or 4 Channel 12-Bit ADC
 - FM24CL64B-GTR: 64 kB FRAM
@@ -25,6 +25,7 @@ TechBird-SmartSense is an IoT device with a 4-channel 12-Bit ADC, to measure up 
 ## Hardware
 - <span style="text-decoration:overline">WKUP</span> need to be routed to IO2
 <img src="Pictures/flywire_001.jpg" alt="Bild" height="300; width: auto;">
+- For some reasons, unknown to men, the LiPo Battery is necessary, to provide enough energy for initial W-LAN connection. Or maybe use a beefier USB power supply.
 
 ## Software
 - When ringbuffer loops, one set of wrong data will be send
