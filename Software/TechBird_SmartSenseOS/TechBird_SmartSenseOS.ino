@@ -364,9 +364,9 @@ void setup() {
   if (!wokeFromDeepSleep && (resetReason == ESP_RST_POWERON || resetReason == ESP_RST_EXT)) {
       runBootmenu();
   } else if (wokeFromDeepSleep) {
-      LOG_INFO("DeepSleep wakeup — Bootmenu skipped.");
+      LOG_INFO("DeepSleep wakeup — Bootmenu skipped.\r");
   } else if (resetReason == ESP_RST_SW) {
-      LOG_INFO("Software reset — Bootmenu skipped.");
+      LOG_INFO("Software reset — Bootmenu skipped.\r");
   }
 
   pinMode(nWKUP, INPUT);
@@ -1247,7 +1247,7 @@ void bootmenu_Temp_Internal_Submenu() {
     clearScreen();
     Serial.println("Internal Temp Config");
     Serial.println("====================================");
-    Serial.println("[0] Current Value: " + String(tmp_read_temperature(TMP1075::ConversionTime220ms) * 100) + "°C");
+    Serial.println("[0] Current Value: " + String(tmp_read_temperature(TMP1075::ConversionTime220ms)) + "°C");
     Serial.println("[1] Offset: " + String(system_config.internal_offset) + "°C");
     Serial.println("[u] Update Current Temp");
     Serial.println("[x] Return");
