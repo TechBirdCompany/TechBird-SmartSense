@@ -4,7 +4,7 @@ TechBird-SmartSense is an IoT device with a 4-channel 12-Bit ADC, to measure up 
 <img src="Pictures/SmartSense_ProductPic.png" alt="Bild" height="300; width: auto;">
 
 # Features
-- ESP32-C6-MINI-1-N4: As SoC
+- ESP32-C6-MINI-1-N4: As module
 - EEMB LP103454: 2000 mAh Lipo Battery
   - 7 days of uptime with 10 seconds time gab, and ringbuffer size of 60
 - ADS1015IDGSR: 2 Differntiall or 4 Channel 12-Bit ADC
@@ -32,3 +32,8 @@ TechBird-SmartSense is an IoT device with a 4-channel 12-Bit ADC, to measure up 
 # Known Nuisances
 - When in deep sleep, attaching USB connection won't reset the device and the lid need to be removed in order to get to the bootmenu
 - Main connector is not made to be removed frequently, which makes charging pretty annoying
+
+# Arduino IDE Setup
+- The settings should look something like this:
+  
+<img src="Pictures/settings_arduino.png" alt="Bild" height="300; width: auto;">
