@@ -23,6 +23,7 @@ TechBird-SmartSense is an IoT device with a 4-channel 12-Bit ADC, to measure up 
 
 # Known Bugs
 ## Hardware
+- For some reasons, unknown to men, the LiPo Battery is necessary, to provide enough energy for initial W-LAN connection. Or maybe use a beefier USB power supply
 - <span style="text-decoration:overline">WKUP</span> need to be routed to IO2
 <img src="Pictures/flywire_001.jpg" alt="Bild" height="300; width: auto;">
 
