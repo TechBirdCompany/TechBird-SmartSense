@@ -296,8 +296,8 @@ void setup() {
     while (!Serial && millis() - startWait < 1000 * 5) {
       // Just wait
     }
-
     LOG_INFO("USB interface active\r");
+    Serial.println("\nGreetings Professor Falken.\n");
   } else {
     LOG_SET_LEVEL(DebugLogLevel::LVL_NONE);
   }
@@ -378,6 +378,9 @@ void setup() {
   xTaskCreatePinnedToCore(samplingTask, "Sampler", 4096, &system_config.sps, 1, NULL, 0);
   xTaskCreatePinnedToCore(uploadTask, "Uploader", 8192, &system_config.interval, 1, NULL, 0);
   xTaskCreatePinnedToCore(ledTask, "LED_Task", 2048, NULL, 2, NULL, 0);
+  if (usb_serial_jtag_is_connected()){
+    xTaskCreatePinnedToCore(bootmenuTask, "Bootmenu", 2048, NULL, 2, NULL, 0);
+  }
 }
 //================================================================================
 
@@ -556,29 +559,23 @@ void runBootmenu() {
 }
 
 void bootmenuTask(void *param) {
-  if (digitalRead(USB_DETECT)) {
-    Serial.println("\nGreetings Professor Falken.\n");
-    Serial.println("Press SPACE for Bootmenu...\n");
-    while (1) {
+  // dieser Task wird NUR erstellt, wenn Serial/USB ok sind
+  for (;;) {
+    // kleine Pause damit der Scheduler und der WDT glücklich sind
+    vTaskDelay(pdMS_TO_TICKS(10));
 
-      bootTimer = millis();
-      while (millis() - bootTimer < 10000) {
-        if (Serial.available() > 0) {
-          char c = Serial.read();
-
-          if (c == ' ') {
-            bootmenuActive = true;
-            break;
-          }
-        }
-      }
-
-      if (bootmenuActive) {
+    if (Serial.available() > 0) {
+      char c = Serial.read();
+      if (c == ' ') {
+        bootmenuActive = true;
+        LOG_INFO("Bootmenu activation key detected\r");
+        // Rufe Menü synchron auf (blockierend) - oder alternativ in eigenen Task
         LOG_SET_LEVEL(DebugLogLevel::LVL_NONE);
         bootmenu_Main();
         LOG_SET_LEVEL(DebugLogLevel::LVL_INFO);
+        bootmenuActive = false;
+        // Nach Rückkehr kann Task weiterlaufen und auf nächsten SPACE warten
       }
-      bootmenuActive = false;
     }
   }
 }
