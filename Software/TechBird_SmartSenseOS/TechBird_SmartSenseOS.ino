@@ -178,6 +178,7 @@ struct struct_system_config {
   bool debug_led = false;
   bool deep_sleep = true;
   float ref_volt;
+  bool send_singles = false;
 } system_config;
 
 void saveConfig(struct_system_config &config);
@@ -204,6 +205,8 @@ void uploadTask(void *param);
 void samplingTask(void *param);
 void runBootmenu();
 float filteredBattery();
+bool deepSleepPossible();
+void setupConnect();
 //---------------------------------------------
 
 
@@ -323,6 +326,11 @@ void setup() {
     loadFramHeader();
   }
 
+  // Initilize Connection
+  if(system_config.send_singles){
+    setupConnect();
+  }
+
   // Initilize TMP1075
   LOG_INFO("Initilize TMP1075\r");
   tmp1075.begin();
@@ -376,8 +384,13 @@ void setup() {
 
   LOG_INFO("Setup finished\r");
   xTaskCreatePinnedToCore(samplingTask, "Sampler", 4096, &system_config.sps, 1, NULL, 0);
-  xTaskCreatePinnedToCore(uploadTask, "Uploader", 8192, &system_config.interval, 1, NULL, 0);
+
+  if (!system_config.send_singles){
+      xTaskCreatePinnedToCore(uploadTask, "Uploader", 8192, &system_config.interval, 1, NULL, 0);
+  }
+
   xTaskCreatePinnedToCore(ledTask, "LED_Task", 2048, NULL, 2, NULL, 0);
+
   if (usb_serial_jtag_is_connected()){
     xTaskCreatePinnedToCore(bootmenuTask, "Bootmenu", 2048, NULL, 2, NULL, 0);
   }
@@ -398,6 +411,54 @@ void loop() {
 //---------------------------------------------
 // ESP
 //---------------------------------------------
+void setupConnect(){
+    WiFi.persistent(false);
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(system_config.wifi_ssid, system_config.wifi_pass);
+    unsigned long wifiStart = millis();
+    while (WiFi.status() != WL_CONNECTED && millis() - wifiStart < 8000) {
+      vTaskDelay(pdMS_TO_TICKS(100));
+    }
+
+    if (WiFi.status() != WL_CONNECTED) {
+      LOG_ERROR("WiFi connection failed\r");
+      setErrorCode(ERROR_WIFI);
+      uploadRunning = false;
+    }else{
+      LOG_INFO("WiFi connected\r");
+    }
+
+    LOG_INFO("Initilize NTP\r");
+    timeClient.begin();
+    timeClient.update();
+    updateRTCFromNTP();
+
+    initMQTT();
+    unsigned long mqttStart = millis();
+    while (!mqttClient.connected() && millis() - mqttStart < 5000) {
+      mqttClient.loop();
+      vTaskDelay(pdMS_TO_TICKS(50));
+    }
+
+    if (!mqttClient.connected()) {
+      LOG_ERROR("MQTT connection failed\r");
+      setErrorCode(ERROR_MQTT);
+      //uploadRunning = false;
+    }
+}
+
+bool deepSleepPossible(){
+  if (system_config.interval * system_config.sps < 10 && !system_config.send_singles){
+    LOG_WARN("Deep Sleep not possible... time for sleep must be > 10 Seconds\r");
+    return false;
+  } else if (system_config.sps < 10 && system_config.send_singles) {
+    LOG_WARN("Deep Sleep not possible... time for sleep must be > 10 Seconds\r");
+    return false;
+  } else {
+    return true;
+  }
+}
+
 void samplingTask(void *param) {
   unsigned long sps_s = *(unsigned long *)param;
 
@@ -420,25 +481,40 @@ void samplingTask(void *param) {
       data.ext_offset[i] = system_config.ext_offset_ch[i];
     }
 
-    uint16_t addr = FRAM_ADDR_START + header.writeIndex * STRUCT_SIZE;
-    writeMQTTToFRAM(addr, data);
-
-    header.writeIndex = (header.writeIndex + 1) % MAX_RECORDS;
-    saveFramHeader();
-
     String logMsg = "Saved dataset #" + String(data.index) + " | Timestamp: " + String(data.timestamp) + " | Bat: " + String(data.voltage_battery / 1000.0, 2) + " V" + " | IntTemp: " + String(data.internal_temperature, 2) + " °C" + " | Offset: " + String(data.internal_offset, 2) + " °C";
     for (int i = 0; i < 4; i++) {
       logMsg += " | CH" + String(i + 1) + ": " + String(data.ext_ch[i], 2) + " °C (Offset: " + String(data.ext_offset[i], 2) + ")";
     }
     LOG_INFO(logMsg.c_str(), "\r");
 
-    uint16_t count = (header.writeIndex >= header.readIndex) ? (header.writeIndex - header.readIndex) : (MAX_RECORDS - header.readIndex + header.writeIndex);
+    if (system_config.send_singles){
+      setupConnect();
+      publishMqttData(system_config.mqtt_topic.c_str(), data);
+      unsigned long t0 = millis();
+      while (millis() - t0 < 500) {          
+          mqttClient.loop();
+          vTaskDelay(pdMS_TO_TICKS(10));
+      }
+      uploadRunning = false;
+    } else {
+      uint16_t addr = FRAM_ADDR_START + header.writeIndex * STRUCT_SIZE;
+      writeMQTTToFRAM(addr, data);
 
-    if (count >= system_config.interval && !uploadRunning) {
-      uploadRunning = true;
+      header.writeIndex = (header.writeIndex + 1) % MAX_RECORDS;
+      saveFramHeader();
+
+      uint16_t count = (header.writeIndex >= header.readIndex) ? (header.writeIndex - header.readIndex) : (MAX_RECORDS - header.readIndex + header.writeIndex);
+
+      if (count >= system_config.interval && !uploadRunning) {
+        uploadRunning = true;
+      }
     }
 
-    if (!uploadRunning && !bootmenuActive && system_config.deep_sleep) {
+    if (!uploadRunning && !bootmenuActive && system_config.deep_sleep && deepSleepPossible()) {
+      WiFi.disconnect(true);
+      WiFi.mode(WIFI_OFF);
+      mqttClient.disconnect();
+
       LOG_INFO("Entering Deep Sleep until RTC pulse...\r");
 
       pinMode(nWKUP, INPUT);
@@ -469,39 +545,7 @@ void uploadTask(void *param) {
     LOG_INFO("Start upload cycle\r");
     setLedMode(LED_UPLOAD);
 
-    WiFi.persistent(false);
-    WiFi.mode(WIFI_STA);
-    WiFi.begin(system_config.wifi_ssid, system_config.wifi_pass);
-    unsigned long wifiStart = millis();
-    while (WiFi.status() != WL_CONNECTED && millis() - wifiStart < 8000) {
-      vTaskDelay(pdMS_TO_TICKS(100));
-    }
-
-    if (WiFi.status() != WL_CONNECTED) {
-      LOG_ERROR("WiFi connection failed\r");
-      setErrorCode(ERROR_WIFI);
-      uploadRunning = false;
-      continue;
-    }
-
-    LOG_INFO("Initilize NTP\r");
-    timeClient.begin();
-    timeClient.update();
-    updateRTCFromNTP();
-
-    initMQTT();
-    unsigned long mqttStart = millis();
-    while (!mqttClient.connected() && millis() - mqttStart < 5000) {
-      mqttClient.loop();
-      vTaskDelay(pdMS_TO_TICKS(50));
-    }
-
-    if (!mqttClient.connected()) {
-      LOG_ERROR("MQTT connection failed\r");
-      setErrorCode(ERROR_MQTT);
-      uploadRunning = false;
-      continue;
-    }
+    setupConnect();
 
     while (header.readIndex != endIndex) {
       mqtt_struct temp;
@@ -520,6 +564,7 @@ void uploadTask(void *param) {
 
     WiFi.disconnect(true);
     WiFi.mode(WIFI_OFF);
+    mqttClient.disconnect();
   }
 }
 
@@ -559,9 +604,7 @@ void runBootmenu() {
 }
 
 void bootmenuTask(void *param) {
-  // dieser Task wird NUR erstellt, wenn Serial/USB ok sind
   for (;;) {
-    // kleine Pause damit der Scheduler und der WDT glücklich sind
     vTaskDelay(pdMS_TO_TICKS(10));
 
     if (Serial.available() > 0) {
@@ -569,12 +612,10 @@ void bootmenuTask(void *param) {
       if (c == ' ') {
         bootmenuActive = true;
         LOG_INFO("Bootmenu activation key detected\r");
-        // Rufe Menü synchron auf (blockierend) - oder alternativ in eigenen Task
         LOG_SET_LEVEL(DebugLogLevel::LVL_NONE);
         bootmenu_Main();
         LOG_SET_LEVEL(DebugLogLevel::LVL_INFO);
         bootmenuActive = false;
-        // Nach Rückkehr kann Task weiterlaufen und auf nächsten SPACE warten
       }
     }
   }
@@ -683,18 +724,16 @@ bool publishMqttData(const char *topic, const mqtt_struct &data) {
 // Internal ADC
 //---------------------------------------------
 float adc_read_voltage() {
-    const int SAMPLES = 5;          // Anzahl Messungen für Median
+    const int SAMPLES = 5;
     float readings[SAMPLES];
 
-    // mehrere Messungen
     for (int i = 0; i < SAMPLES; i++) {
         readings[i] = analogRead(VBAT_ADC) * 1.4311f;
-        vTaskDelay(pdMS_TO_TICKS(2));  // kurze Pause zwischen Samples
+        vTaskDelay(pdMS_TO_TICKS(2)); 
     }
 
-    // Median bestimmen
     std::sort(readings, readings + SAMPLES);
-    float voltage = readings[SAMPLES / 2];  // Median
+    float voltage = readings[SAMPLES / 2]; 
 
     LOG_INFO("BAT ADC median=", String(voltage, 2), " mV\r");
 
@@ -703,7 +742,7 @@ float adc_read_voltage() {
 
 float filteredBattery() {
     const int MAX_RETRIES = 5;
-    const float MAX_DELTA = 0.15f;  // 150 mV Sprung unrealistisch
+    const float MAX_DELTA = 0.15f; 
     const float MIN_VOLT = 0.0f;
     const float MAX_VOLT = 5000.0f;
 
@@ -714,7 +753,6 @@ float filteredBattery() {
 
         LOG_INFO("BAT sample ", String(i), ": ", String(v, 3), " mV\r");
 
-        // plausibler Bereich?
         if (v > MIN_VOLT && v < MAX_VOLT) {
             if (!isnan(lastValidBattery)) {
                 float delta = fabs(v - lastValidBattery);
@@ -723,7 +761,7 @@ float filteredBattery() {
                     LOG_WARN("BAT outlier detected: Δ=", String(delta, 3),
                              " mV → retry\r");
                     vTaskDelay(pdMS_TO_TICKS(5));
-                    continue;  // retry
+                    continue;
                 }
             }
 
@@ -735,14 +773,12 @@ float filteredBattery() {
         vTaskDelay(pdMS_TO_TICKS(5));
     }
 
-    // kein gültiger Wert → alten Wert verwenden
     if (isnan(best)) {
         LOG_ERROR("BAT no valid sample; using lastValidBattery\r");
         if (!isnan(lastValidBattery)) return lastValidBattery;
         return NAN;
     }
 
-    // Glättung (EMA)
     if (!isnan(lastValidBattery)) {
         float alpha = 0.3f;
         float smoothed = lastValidBattery + alpha * (best - lastValidBattery);
@@ -759,58 +795,6 @@ float filteredBattery() {
 
     return best;
 }
-/*
-float adc_read_voltage() {
-  float tmp;
-  tmp = analogRead(VBAT_ADC) * 1.4311;
-
-  LOG_INFO("Battery Voltage:", String(tmp, 2), " mV\r");
-
-  return tmp;
-}
-
-
-float filteredBattery() {
-    const int MAX_RETRIES = 5;
-    const float MAX_DELTA = 0.15;   // 150 mV Sprung ist unrealistisch
-    const float MIN_VOLT = 0.0;
-    const float MAX_VOLT = 5000.0;  // 5V (ESP32 ADC Fehler)
-
-    float best = NAN;
-
-    for (int i = 0; i < MAX_RETRIES; i++) {
-        float v = adc_read_voltage(); // deine bestehende Funktion
-
-        if (v > MIN_VOLT && v < MAX_VOLT) {
-
-            if (!isnan(lastValidBattery)) {
-                if (fabs(v - lastValidBattery) > MAX_DELTA) {
-                    // Ausreißer → nochmal messen
-                    delay(5);
-                    continue;
-                }
-            }
-
-            best = v;
-            break;
-        }
-    }
-
-    if (isnan(best)) {
-        if (!isnan(lastValidBattery)) return lastValidBattery;
-        return NAN;
-    }
-
-    // Glättung
-    float alpha = 0.3;
-    if (!isnan(lastValidBattery)) {
-        best = lastValidBattery + alpha * (best - lastValidBattery);
-    }
-
-    lastValidBattery = best;
-    return best;
-}
-*/
 //---------------------------------------------
 
 
@@ -847,35 +831,29 @@ float filteredNTC(int channel) {
 
         float t = calcNTCTemperature(channel);
 
-        // ungültig?
         if (isnan(t) || t < MIN_TEMP || t > MAX_TEMP) {
             vTaskDelay(pdMS_TO_TICKS(8));
             continue;
         }
 
-        // erster gültiger Wert?
         if (isnan(last)) {
             finalVal = t;
             break;
         }
 
-        // Ausreißerprüfung
         if (fabs(t - last) > MAX_DELTA) {
             vTaskDelay(pdMS_TO_TICKS(8));
             continue;
         }
 
-        // gültiger Wert
         finalVal = t;
         break;
     }
 
-    // kein gültiger Wert nach allen Retries
     if (isnan(finalVal)) {
-        return last;   // fallback
+        return last; 
     }
 
-    // leichte Glättung
     float alpha = 0.2f;
     if (!isnan(last)) {
         finalVal = last + alpha * (finalVal - last);
@@ -887,25 +865,19 @@ float filteredNTC(int channel) {
 
 float calcNTCTemperature(int channel) {
 
-    // Spannung am NTC lesen
     float Vout = ads.computeVolts(ads.readADC_SingleEnded(channel));
 
-    // Pull-Up Widerstand aus Config
     float Rserie = system_config.ext_rs_ch[channel];
 
-    // NTC-Parameter aus Config
     float R0 = system_config.ext_rn_ch[channel];
     float T0 = system_config.ext_tn_ch[channel];
     float B  = system_config.ext_b_ch[channel];
 
-    // Referenzspannung
     float Vin = system_config.ref_volt;
 
-    // T0 in Kelvin
     float T0_K = T0;
     if (T0_K < 200.0f) T0_K += 273.15f;
 
-    // Spannungsteiler-Check
     if (Vout <= 0.0f || Vout >= Vin) {
         LOG_ERROR("CH", String(channel),
                   " invalid Vout=", String(Vout, 6),
@@ -913,7 +885,6 @@ float calcNTCTemperature(int channel) {
         return NAN;
     }
 
-    // NTC-Widerstand berechnen
     float Rntc = Rserie * (Vout / (Vin - Vout));
 
     if (Rntc <= 0.0f) {
@@ -922,11 +893,9 @@ float calcNTCTemperature(int channel) {
         return NAN;
     }
 
-    // B-Formel zur Temperaturberechnung
     float tempK = 1.0f / (1.0f / T0_K + (1.0f / B) * log(Rntc / R0));
     float tempC = tempK - 273.15f;
 
-    // Logging
     LOG_INFO("CH", String(channel),
              " R0=", String(R0, 2),
              " T0=", String(T0_K, 2), "K",
@@ -939,105 +908,6 @@ float calcNTCTemperature(int channel) {
 
     return tempC;
 }
-/*
-float filteredNTC(int channel) {
-    const int MAX_RETRIES = 4;
-    const int RETRY_DELAY_MS = 10;
-    const float MIN_TEMP = -40.0;
-    const float MAX_TEMP = 150.0;
-    const float MAX_DELTA = 5.0;  // max erlaubte Änderung pro Sample
-
-    float best = NAN;
-
-    for (int i = 0; i < MAX_RETRIES; i++) {
-        float t = calcNTCTemperature(channel);
-
-        if (!isnan(t) && t > MIN_TEMP && t < MAX_TEMP) {
-
-            // haben wir einen gültigen alten Wert?
-            if (!isnan(lastValidTemp[channel])) {
-                if (fabs(t - lastValidTemp[channel]) > MAX_DELTA) {
-                    // Ausreißer → nochmal messen
-                    vTaskDelay(pdMS_TO_TICKS(RETRY_DELAY_MS));
-                    continue;
-                }
-            }
-
-            best = t;
-            break;
-        }
-
-        // ungültig → retry
-        vTaskDelay(pdMS_TO_TICKS(RETRY_DELAY_MS));
-    }
-
-    // Wenn kein gültiger Wert → alten Wert behalten
-    if (isnan(best)) {
-        if (!isnan(lastValidTemp[channel])) {
-            return lastValidTemp[channel]; // fallback
-        }
-        return NAN; // noch nie ein valider Wert
-    }
-
-    // optional leichte Glättung (EMA)
-    float alpha = 0.2;
-    if (!isnan(lastValidTemp[channel])) {
-        best = lastValidTemp[channel] + alpha * (best - lastValidTemp[channel]);
-    }
-
-    lastValidTemp[channel] = best;
-    return best;
-}
-
-float calcNTCTemperature(int channel) {
-    // Spannung am NTC
-    float Vout = ads.computeVolts(ads.readADC_SingleEnded(channel));
-    vTaskDelay(pdMS_TO_TICKS(10));
-    Vout = ads.computeVolts(ads.readADC_SingleEnded(channel));
-
-    // Pull-Up Widerstand aus Config
-    float Rserie = system_config.ext_rs_ch[channel];
-
-    // NTC-Parameter aus Config
-    float R0 = system_config.ext_rn_ch[channel];
-    float T0 = system_config.ext_tn_ch[channel];
-    float B  = system_config.ext_b_ch[channel];
-
-    if (T0 < 200.0f) T0 += 273.15f;  // T0 in Kelvin
-
-    // Spannungsteiler-Check
-    float Vin = system_config.ref_volt;
-    if (Vout <= 0.0f || Vout >= Vin) {
-        LOG_ERROR("Invalid voltage on CH", String(channel), "\r");
-        return NAN;
-    }
-
-    // NTC-Widerstand berechnen
-    float Rntc = Rserie * (Vout / (Vin - Vout));
-
-    if (Rntc <= 0.0f) {
-        LOG_ERROR("Invalid NTC resistance on CH", String(channel), "\r");
-        return NAN;
-    }
-
-    // B-Formel zur Temperaturberechnung
-    float tempK = 1.0f / (1.0f / T0 + (1.0f / B) * log(Rntc / R0));
-    float tempC = tempK - 273.15f;
-
-    // Logging
-    LOG_INFO("CH", String(channel),
-             " R0=", String(R0),
-             " T0=", String(T0),
-             " B=", String(B),
-             " Vout=", String(Vout),
-             " Vin=", String(Vin,3),
-             " Rs=", String(Rserie),
-             " Rntc=", String(Rntc),
-             " Temp=", String(tempC, 2), "°C\r");
-
-    return tempC;
-}
-*/
 //---------------------------------------------
 
 
@@ -1092,15 +962,28 @@ String getRTC_ISO8601() {
 
 void updateRTCFromNTP() {
   if (WiFi.status() != WL_CONNECTED) {
-    LOG_ERROR("No WiFi → cannot sync RTC!");
+    LOG_ERROR("No WiFi → cannot sync RTC!\r");
     return;
   }
 
-  timeClient.update();
-  unsigned long epoch = timeClient.getEpochTime();
-  time_t t = (time_t)epoch;
+  if (!timeClient.update()) {
+    LOG_ERROR("NTP update failed!\r");
+    return;
+  }
 
+  unsigned long epoch = timeClient.getEpochTime();
+  if (epoch < 100000) {
+    LOG_ERROR("NTP time invalid (epoch = %lu)\r", epoch);
+    return;
+  }
+
+  time_t t = (time_t)epoch;
   struct tm *ptm = gmtime(&t);
+
+  if (ptm == nullptr) {
+    LOG_ERROR("gmtime() returned NULL!\r");
+    return;
+  }
 
   rtc.setSeconds(ptm->tm_sec);
   rtc.setMinutes(ptm->tm_min);
@@ -1121,9 +1004,29 @@ void updateRTCFromNTP() {
 void bootmenu_Main() {
   bool inMenu = true;
   String buffer = "";
+  String led;
+  String deepsleep;
+  String sendSingles;
 
   while (inMenu) {
-    // Hauptmenü
+    if (system_config.debug_led){
+      led = "ON";
+    } else {
+      led = "OFF";
+    }
+
+    if (system_config.deep_sleep){
+      deepsleep = "ON";
+    } else {
+      deepsleep = "OFF";
+    }
+
+    if (system_config.send_singles){
+      sendSingles = "ON";
+    } else {
+      sendSingles = "OFF";
+    }
+
     clearScreen();
     Serial.println("TechBird - SmartSense");
     Serial.println("====================================");
@@ -1133,8 +1036,9 @@ void bootmenu_Main() {
     Serial.println("[4] External Temperature Config");
     Serial.println("[5] Sample every Seconds: " + String(system_config.sps) + " s/Sa");
     Serial.println("[6] Send saved MQTT after n messages: " + String(system_config.interval));
-    Serial.println("[7] Debug LED ON/OFF: " + String(system_config.debug_led));
-    Serial.println("[8] DeepSleep ON/OFF: " + String(system_config.deep_sleep));
+    Serial.println("[7] Debug LED: " + led);
+    Serial.println("[8] DeepSleep: " + deepsleep);
+    Serial.println("[9] Send Singles: " + sendSingles);
     Serial.println("[s] Save Config");
     Serial.println("[l] Load Config");
     Serial.println("[x] Exit Bootmenu");
@@ -1157,11 +1061,23 @@ void bootmenu_Main() {
       Serial.println("Enter Size of Ringbuffer:");
       system_config.interval = readSerialLine(LINE_INPUT).toInt();
     } else if (buffer == "7") {
-      Serial.println("LED 1 = ON, 0 = OFF:");
-      system_config.debug_led = readSerialLine(LINE_INPUT).toInt();
+      if(system_config.debug_led){
+        system_config.debug_led = 0;
+      } else {
+        system_config.debug_led = 1;
+      }
     } else if (buffer == "8") {
-      Serial.println("DeepSleep 1 = ON, 0 = OFF:");
-      system_config.deep_sleep = readSerialLine(LINE_INPUT).toInt();
+      if(system_config.deep_sleep){
+        system_config.deep_sleep = 0;
+      } else {
+        system_config.deep_sleep = 1;
+      }
+    } else if (buffer == "9") {
+      if(system_config.send_singles){
+        system_config.send_singles = 0;
+      } else {
+        system_config.send_singles = 1;
+      }
     } else if (buffer == "s") {
       saveConfig(system_config);
       Serial.println("Configuration saved to EEPROM/NVS.");
@@ -1386,6 +1302,7 @@ void saveConfig(struct_system_config &config) {
   prefs.putInt("debug_led", config.debug_led);
   prefs.putInt("deep_sleep", config.deep_sleep);
   prefs.putFloat("ref_volt", config.ref_volt);
+  prefs.putInt("send_singles", config.send_singles);
 
   for (int ch = 0; ch < 4; ch++) {
     prefs.putFloat(("ext_offset" + String(ch)).c_str(), config.ext_offset_ch[ch]);
@@ -1416,6 +1333,7 @@ void loadConfig(struct_system_config &config) {
   config.debug_led = prefs.getInt("debug_led", 1);
   config.deep_sleep = prefs.getInt("deep_sleep", 0);
   config.ref_volt = prefs.getFloat("ref_volt", 3.300);
+  config.send_singles = prefs.getInt("send_singles", 1);
 
   for (int ch = 0; ch < 4; ch++) {
     config.ext_offset_ch[ch] = prefs.getFloat(("ext_offset" + String(ch)).c_str(), 0);
