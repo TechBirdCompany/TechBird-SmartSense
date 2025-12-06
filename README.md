@@ -38,8 +38,7 @@ TechBird-SmartSense is an IoT device with a 4-channel 12-Bit ADC, to measure up 
 - The settings should look something like this:
   
 <img src="Pictures/settings_arduino.png" alt="Bild" height="300; width: auto;">
-<<<<<<< Updated upstream
-=======
+
 
 - The following libraries shoulld be installed:
   - https://github.com/arduino-libraries/Arduino_JSON
@@ -51,4 +50,4 @@ TechBird-SmartSense is an IoT device with a 4-channel 12-Bit ADC, to measure up 
   - https://github.com/constiko/RV-3028_C7-Arduino_Library
   - https://github.com/PatrickBaus/Arduino-TMP1075/tree/master
     - Needs to be installed manually
->>>>>>> Stashed changes
+
