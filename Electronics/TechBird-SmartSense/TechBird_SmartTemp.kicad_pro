@@ -482,7 +482,7 @@
         "pcb_color": "rgba(0, 0, 0, 0.000)",
         "priority": 2147483647,
         "schematic_color": "rgba(0, 0, 0, 0.000)",
-        "track_width": 0.2,
+        "track_width": 0.1,
         "via_diameter": 0.6,
         "via_drill": 0.3,
         "wire_width": 6
@@ -507,18 +507,6 @@
       {
         "netclass": "Power",
         "pattern": "+*"
-      },
-      {
-        "netclass": "Power",
-        "pattern": "VBAT*"
-      },
-      {
-        "netclass": "Power",
-        "pattern": "/VBAT*"
-      },
-      {
-        "netclass": "Power",
-        "pattern": "GND"
       }
     ]
   },
@@ -690,6 +678,12 @@
           "label": "Distri Link",
           "name": "Distri Link",
           "show": true
+        },
+        {
+          "group_by": false,
+          "label": "Voltage",
+          "name": "Voltage",
+          "show": false
         }
       ],
       "filter_string": "",
@@ -743,6 +737,26 @@
     [
       "034e19ab-2c62-466b-aaf9-4273bfe2f6b2",
       "Root"
+    ],
+    [
+      "b7ec4e77-cb84-4f5c-96e8-18a5f2607c53",
+      "I2C Devices"
+    ],
+    [
+      "1661ee6a-1ef0-428f-96ca-f952c1e86b9d",
+      "Power"
+    ],
+    [
+      "09db91d4-64ee-45b3-b0a2-be4c6dfdfd32",
+      "uSD-Card"
+    ],
+    [
+      "2add1885-0edb-4319-bce5-0ce541cad4d2",
+      "USB"
+    ],
+    [
+      "33e8e687-e8c8-4217-9a3d-6838fbeb0de9",
+      "24V Supply"
     ]
   ],
   "text_variables": {}
