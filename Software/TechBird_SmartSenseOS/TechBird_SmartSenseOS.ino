@@ -118,7 +118,7 @@ float tmp_read_temperature(TMP1075::ConversionTime time);
 //---------------------------------------------
 // Preamble ADS1x15
 //---------------------------------------------
-#define ADC_GAIN GAIN_TWO  //GAIN_EIGHT
+#define ADC_GAIN GAIN_TWOTHIRDS //GAIN_TWO  //GAIN_EIGHT
 
 Adafruit_ADS1015 ads;
 
@@ -820,9 +820,8 @@ float tmp_read_temperature(TMP1075::ConversionTime time) {
 float filteredNTC(int channel) {
 
     const int MAX_RETRIES = 5;
-    const float MAX_DELTA = 4.0;
-    const float MIN_TEMP = -40.0;
-    const float MAX_TEMP = 150.0;
+    const float MIN_TEMP = -35.0f;
+    const float MAX_TEMP = 150.0f;
 
     float last = lastValidTemp[channel];
     float finalVal = NAN;
@@ -831,17 +830,20 @@ float filteredNTC(int channel) {
 
         float t = calcNTCTemperature(channel);
 
+        // Erstwert IMMER akzeptieren
+        if (!isnan(t) && isnan(last)) {
+            lastValidTemp[channel] = t;
+            return t;
+        }
+
         if (isnan(t) || t < MIN_TEMP || t > MAX_TEMP) {
             vTaskDelay(pdMS_TO_TICKS(8));
             continue;
         }
 
-        if (isnan(last)) {
-            finalVal = t;
-            break;
-        }
+        float maxDelta = (last < 0 || t < 0) ? 8.0f : 4.0f;
 
-        if (fabs(t - last) > MAX_DELTA) {
+        if (fabs(t - last) > maxDelta) {
             vTaskDelay(pdMS_TO_TICKS(8));
             continue;
         }
@@ -851,11 +853,12 @@ float filteredNTC(int channel) {
     }
 
     if (isnan(finalVal)) {
-        return last; 
+        return last;
     }
 
-    float alpha = 0.2f;
+    // Glättung
     if (!isnan(last)) {
+        const float alpha = 0.2f;
         finalVal = last + alpha * (finalVal - last);
     }
 
@@ -878,7 +881,7 @@ float calcNTCTemperature(int channel) {
     float T0_K = T0;
     if (T0_K < 200.0f) T0_K += 273.15f;
 
-    if (Vout <= 0.0f || Vout >= Vin) {
+    if (Vout <= 0.0f || Vout > (Vin - 0.01f)) {
         LOG_ERROR("CH", String(channel),
                   " invalid Vout=", String(Vout, 6),
                   " (Vin=", String(Vin, 6), ") -> NAN\r");
