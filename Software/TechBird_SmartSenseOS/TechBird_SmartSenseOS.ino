@@ -100,7 +100,7 @@ bool setInterrupt(uint32_t newTimeSeconds, bool repeat = true);
 //---------------------------------------------
 WiFiUDP ntpUDP;
 
-NTPClient timeClient(ntpUDP);
+NTPClient timeClient(ntpUDP, "europe.pool.ntp.org");
 //---------------------------------------------
 
 
@@ -118,13 +118,13 @@ float tmp_read_temperature(TMP1075::ConversionTime time);
 //---------------------------------------------
 // Preamble ADS1x15
 //---------------------------------------------
-#define ADC_GAIN GAIN_TWOTHIRDS //GAIN_TWO  //GAIN_EIGHT
+#define ADC_GAIN GAIN_TWOTHIRDS  //GAIN_TWO  //GAIN_EIGHT
 
 Adafruit_ADS1015 ads;
 
 float tmp_read_ext_temperature[4];
 float calcNTCTemperature(int channel);
-float lastValidTemp[4] = { NAN, NAN, NAN, NAN};
+float lastValidTemp[4] = { NAN, NAN, NAN, NAN };
 float filteredNTC(int channel);
 //---------------------------------------------
 
@@ -327,7 +327,7 @@ void setup() {
   }
 
   // Initilize Connection
-  if(system_config.send_singles){
+  if (system_config.send_singles) {
     setupConnect();
   }
 
@@ -370,11 +370,11 @@ void setup() {
   LOG_INFO("DeepSleep wake flag: ", wokeFromDeepSleep, "\r");
 
   if (!wokeFromDeepSleep && (resetReason == ESP_RST_POWERON || resetReason == ESP_RST_EXT)) {
-      runBootmenu();
+    runBootmenu();
   } else if (wokeFromDeepSleep) {
-      LOG_INFO("DeepSleep wakeup — Bootmenu skipped.\r");
+    LOG_INFO("DeepSleep wakeup — Bootmenu skipped.\r");
   } else if (resetReason == ESP_RST_SW) {
-      LOG_INFO("Software reset — Bootmenu skipped.\r");
+    LOG_INFO("Software reset — Bootmenu skipped.\r");
   }
 
   pinMode(nWKUP, INPUT);
@@ -385,13 +385,13 @@ void setup() {
   LOG_INFO("Setup finished\r");
   xTaskCreatePinnedToCore(samplingTask, "Sampler", 4096, &system_config.sps, 1, NULL, 0);
 
-  if (!system_config.send_singles){
-      xTaskCreatePinnedToCore(uploadTask, "Uploader", 8192, &system_config.interval, 1, NULL, 0);
+  if (!system_config.send_singles) {
+    xTaskCreatePinnedToCore(uploadTask, "Uploader", 8192, &system_config.interval, 1, NULL, 0);
   }
 
   xTaskCreatePinnedToCore(ledTask, "LED_Task", 2048, NULL, 2, NULL, 0);
 
-  if (usb_serial_jtag_is_connected()){
+  if (usb_serial_jtag_is_connected()) {
     xTaskCreatePinnedToCore(bootmenuTask, "Bootmenu", 2048, NULL, 2, NULL, 0);
   }
 }
@@ -411,44 +411,46 @@ void loop() {
 //---------------------------------------------
 // ESP
 //---------------------------------------------
-void setupConnect(){
-    WiFi.persistent(false);
-    WiFi.mode(WIFI_STA);
-    WiFi.begin(system_config.wifi_ssid, system_config.wifi_pass);
-    unsigned long wifiStart = millis();
-    while (WiFi.status() != WL_CONNECTED && millis() - wifiStart < 8000) {
-      vTaskDelay(pdMS_TO_TICKS(100));
-    }
+void setupConnect() {
+  WiFi.persistent(false);
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(system_config.wifi_ssid, system_config.wifi_pass);
+  unsigned long wifiStart = millis();
+  while (WiFi.status() != WL_CONNECTED && millis() - wifiStart < 8000) {
+    vTaskDelay(pdMS_TO_TICKS(100));
+  }
 
-    if (WiFi.status() != WL_CONNECTED) {
-      LOG_ERROR("WiFi connection failed\r");
-      setErrorCode(ERROR_WIFI);
-      uploadRunning = false;
-    }else{
-      LOG_INFO("WiFi connected\r");
-    }
+  if (WiFi.status() != WL_CONNECTED) {
+    LOG_ERROR("WiFi connection failed\r");
+    setErrorCode(ERROR_WIFI);
+    uploadRunning = false;
+  } else {
+    LOG_INFO("WiFi connected\r");
+  }
 
-    LOG_INFO("Initilize NTP\r");
-    timeClient.begin();
-    timeClient.update();
-    updateRTCFromNTP();
+  LOG_INFO("Initilize NTP\r");
+  //timeClient.begin();
+  //timeClient.update();
+  //vTaskDelay(pdMS_TO_TICKS(1000));
 
-    initMQTT();
-    unsigned long mqttStart = millis();
-    while (!mqttClient.connected() && millis() - mqttStart < 5000) {
-      mqttClient.loop();
-      vTaskDelay(pdMS_TO_TICKS(50));
-    }
+  updateRTCFromNTP();
 
-    if (!mqttClient.connected()) {
-      LOG_ERROR("MQTT connection failed\r");
-      setErrorCode(ERROR_MQTT);
-      //uploadRunning = false;
-    }
+  initMQTT();
+  unsigned long mqttStart = millis();
+  while (!mqttClient.connected() && millis() - mqttStart < 5000) {
+    mqttClient.loop();
+    vTaskDelay(pdMS_TO_TICKS(50));
+  }
+
+  if (!mqttClient.connected()) {
+    LOG_ERROR("MQTT connection failed\r");
+    setErrorCode(ERROR_MQTT);
+    //uploadRunning = false;
+  }
 }
 
-bool deepSleepPossible(){
-  if (system_config.interval * system_config.sps < 10 && !system_config.send_singles){
+bool deepSleepPossible() {
+  if (system_config.interval * system_config.sps < 10 && !system_config.send_singles) {
     LOG_WARN("Deep Sleep not possible... time for sleep must be > 10 Seconds\r");
     return false;
   } else if (system_config.sps < 10 && system_config.send_singles) {
@@ -487,13 +489,13 @@ void samplingTask(void *param) {
     }
     LOG_INFO(logMsg.c_str(), "\r");
 
-    if (system_config.send_singles){
+    if (system_config.send_singles) {
       setupConnect();
       publishMqttData(system_config.mqtt_topic.c_str(), data);
       unsigned long t0 = millis();
-      while (millis() - t0 < 500) {          
-          mqttClient.loop();
-          vTaskDelay(pdMS_TO_TICKS(10));
+      while (millis() - t0 < 500) {
+        mqttClient.loop();
+        vTaskDelay(pdMS_TO_TICKS(10));
       }
       uploadRunning = false;
     } else {
@@ -595,7 +597,7 @@ void runBootmenu() {
         LOG_SET_LEVEL(DebugLogLevel::LVL_NONE);
         bootmenu_Main();
         LOG_SET_LEVEL(DebugLogLevel::LVL_INFO);
-        return; 
+        return;
       }
     }
   }
@@ -724,76 +726,76 @@ bool publishMqttData(const char *topic, const mqtt_struct &data) {
 // Internal ADC
 //---------------------------------------------
 float adc_read_voltage() {
-    const int SAMPLES = 5;
-    float readings[SAMPLES];
+  const int SAMPLES = 5;
+  float readings[SAMPLES];
 
-    for (int i = 0; i < SAMPLES; i++) {
-        readings[i] = analogRead(VBAT_ADC) * 1.4311f;
-        vTaskDelay(pdMS_TO_TICKS(2)); 
-    }
+  for (int i = 0; i < SAMPLES; i++) {
+    readings[i] = analogRead(VBAT_ADC) * 1.4311f;
+    vTaskDelay(pdMS_TO_TICKS(2));
+  }
 
-    std::sort(readings, readings + SAMPLES);
-    float voltage = readings[SAMPLES / 2]; 
+  std::sort(readings, readings + SAMPLES);
+  float voltage = readings[SAMPLES / 2];
 
-    LOG_INFO("BAT ADC median=", String(voltage, 2), " mV\r");
+  LOG_INFO("BAT ADC median=", String(voltage, 2), " mV\r");
 
-    return voltage;
+  return voltage;
 }
 
 float filteredBattery() {
-    const int MAX_RETRIES = 5;
-    const float MAX_DELTA = 0.15f; 
-    const float MIN_VOLT = 0.0f;
-    const float MAX_VOLT = 5000.0f;
+  const int MAX_RETRIES = 5;
+  const float MAX_DELTA = 0.15f;
+  const float MIN_VOLT = 0.0f;
+  const float MAX_VOLT = 5000.0f;
 
-    float best = NAN;
+  float best = NAN;
 
-    for (int i = 0; i < MAX_RETRIES; i++) {
-        float v = adc_read_voltage();
+  for (int i = 0; i < MAX_RETRIES; i++) {
+    float v = adc_read_voltage();
 
-        LOG_INFO("BAT sample ", String(i), ": ", String(v, 3), " mV\r");
+    LOG_INFO("BAT sample ", String(i), ": ", String(v, 3), " mV\r");
 
-        if (v > MIN_VOLT && v < MAX_VOLT) {
-            if (!isnan(lastValidBattery)) {
-                float delta = fabs(v - lastValidBattery);
+    if (v > MIN_VOLT && v < MAX_VOLT) {
+      if (!isnan(lastValidBattery)) {
+        float delta = fabs(v - lastValidBattery);
 
-                if (delta > MAX_DELTA) {
-                    LOG_WARN("BAT outlier detected: Δ=", String(delta, 3),
-                             " mV → retry\r");
-                    vTaskDelay(pdMS_TO_TICKS(5));
-                    continue;
-                }
-            }
-
-            best = v;
-            break;
+        if (delta > MAX_DELTA) {
+          LOG_WARN("BAT outlier detected: Δ=", String(delta, 3),
+                   " mV → retry\r");
+          vTaskDelay(pdMS_TO_TICKS(5));
+          continue;
         }
+      }
 
-        LOG_WARN("BAT invalid sample → retry\r");
-        vTaskDelay(pdMS_TO_TICKS(5));
+      best = v;
+      break;
     }
 
-    if (isnan(best)) {
-        LOG_ERROR("BAT no valid sample; using lastValidBattery\r");
-        if (!isnan(lastValidBattery)) return lastValidBattery;
-        return NAN;
-    }
+    LOG_WARN("BAT invalid sample → retry\r");
+    vTaskDelay(pdMS_TO_TICKS(5));
+  }
 
-    if (!isnan(lastValidBattery)) {
-        float alpha = 0.3f;
-        float smoothed = lastValidBattery + alpha * (best - lastValidBattery);
+  if (isnan(best)) {
+    LOG_ERROR("BAT no valid sample; using lastValidBattery\r");
+    if (!isnan(lastValidBattery)) return lastValidBattery;
+    return NAN;
+  }
 
-        LOG_INFO("BAT smooth: raw=", String(best, 3),
-                 " → smoothed=", String(smoothed, 3), "\r");
+  if (!isnan(lastValidBattery)) {
+    float alpha = 0.3f;
+    float smoothed = lastValidBattery + alpha * (best - lastValidBattery);
 
-        best = smoothed;
-    }
+    LOG_INFO("BAT smooth: raw=", String(best, 3),
+             " → smoothed=", String(smoothed, 3), "\r");
 
-    lastValidBattery = best;
+    best = smoothed;
+  }
 
-    LOG_INFO("BAT final=", String(best, 3), " mV\r");
+  lastValidBattery = best;
 
-    return best;
+  LOG_INFO("BAT final=", String(best, 3), " mV\r");
+
+  return best;
 }
 //---------------------------------------------
 
@@ -819,97 +821,97 @@ float tmp_read_temperature(TMP1075::ConversionTime time) {
 //---------------------------------------------
 float filteredNTC(int channel) {
 
-    const int MAX_RETRIES = 5;
-    const float MIN_TEMP = -35.0f;
-    const float MAX_TEMP = 150.0f;
+  const int MAX_RETRIES = 5;
+  const float MIN_TEMP = -35.0f;
+  const float MAX_TEMP = 150.0f;
 
-    float last = lastValidTemp[channel];
-    float finalVal = NAN;
+  float last = lastValidTemp[channel];
+  float finalVal = NAN;
 
-    for (int retry = 0; retry < MAX_RETRIES; retry++) {
+  for (int retry = 0; retry < MAX_RETRIES; retry++) {
 
-        float t = calcNTCTemperature(channel);
+    float t = calcNTCTemperature(channel);
 
-        // Erstwert IMMER akzeptieren
-        if (!isnan(t) && isnan(last)) {
-            lastValidTemp[channel] = t;
-            return t;
-        }
-
-        if (isnan(t) || t < MIN_TEMP || t > MAX_TEMP) {
-            vTaskDelay(pdMS_TO_TICKS(8));
-            continue;
-        }
-
-        float maxDelta = (last < 0 || t < 0) ? 8.0f : 4.0f;
-
-        if (fabs(t - last) > maxDelta) {
-            vTaskDelay(pdMS_TO_TICKS(8));
-            continue;
-        }
-
-        finalVal = t;
-        break;
+    // Erstwert IMMER akzeptieren
+    if (!isnan(t) && isnan(last)) {
+      lastValidTemp[channel] = t;
+      return t;
     }
 
-    if (isnan(finalVal)) {
-        return last;
+    if (isnan(t) || t < MIN_TEMP || t > MAX_TEMP) {
+      vTaskDelay(pdMS_TO_TICKS(8));
+      continue;
     }
 
-    // Glättung
-    if (!isnan(last)) {
-        const float alpha = 0.2f;
-        finalVal = last + alpha * (finalVal - last);
+    float maxDelta = (last < 0 || t < 0) ? 8.0f : 4.0f;
+
+    if (fabs(t - last) > maxDelta) {
+      vTaskDelay(pdMS_TO_TICKS(8));
+      continue;
     }
 
-    lastValidTemp[channel] = finalVal;
-    return finalVal;
+    finalVal = t;
+    break;
+  }
+
+  if (isnan(finalVal)) {
+    return last;
+  }
+
+  // Glättung
+  if (!isnan(last)) {
+    const float alpha = 0.2f;
+    finalVal = last + alpha * (finalVal - last);
+  }
+
+  lastValidTemp[channel] = finalVal;
+  return finalVal;
 }
 
 float calcNTCTemperature(int channel) {
 
-    float Vout = ads.computeVolts(ads.readADC_SingleEnded(channel));
+  float Vout = ads.computeVolts(ads.readADC_SingleEnded(channel));
 
-    float Rserie = system_config.ext_rs_ch[channel];
+  float Rserie = system_config.ext_rs_ch[channel];
 
-    float R0 = system_config.ext_rn_ch[channel];
-    float T0 = system_config.ext_tn_ch[channel];
-    float B  = system_config.ext_b_ch[channel];
+  float R0 = system_config.ext_rn_ch[channel];
+  float T0 = system_config.ext_tn_ch[channel];
+  float B = system_config.ext_b_ch[channel];
 
-    float Vin = system_config.ref_volt;
+  float Vin = system_config.ref_volt;
 
-    float T0_K = T0;
-    if (T0_K < 200.0f) T0_K += 273.15f;
+  float T0_K = T0;
+  if (T0_K < 200.0f) T0_K += 273.15f;
 
-    if (Vout <= 0.0f || Vout > (Vin - 0.01f)) {
-        LOG_ERROR("CH", String(channel),
-                  " invalid Vout=", String(Vout, 6),
-                  " (Vin=", String(Vin, 6), ") -> NAN\r");
-        return NAN;
-    }
+  if (Vout <= 0.0f || Vout > (Vin - 0.01f)) {
+    LOG_ERROR("CH", String(channel),
+              " invalid Vout=", String(Vout, 6),
+              " (Vin=", String(Vin, 6), ") -> NAN\r");
+    return NAN;
+  }
 
-    float Rntc = Rserie * (Vout / (Vin - Vout));
+  float Rntc = Rserie * (Vout / (Vin - Vout));
 
-    if (Rntc <= 0.0f) {
-        LOG_ERROR("CH", String(channel),
-                  " invalid Rntc=", String(Rntc, 4), " -> NAN\r");
-        return NAN;
-    }
+  if (Rntc <= 0.0f) {
+    LOG_ERROR("CH", String(channel),
+              " invalid Rntc=", String(Rntc, 4), " -> NAN\r");
+    return NAN;
+  }
 
-    float tempK = 1.0f / (1.0f / T0_K + (1.0f / B) * log(Rntc / R0));
-    float tempC = tempK - 273.15f;
+  float tempK = 1.0f / (1.0f / T0_K + (1.0f / B) * log(Rntc / R0));
+  float tempC = tempK - 273.15f;
 
-    LOG_INFO("CH", String(channel),
-             " R0=", String(R0, 2),
-             " T0=", String(T0_K, 2), "K",
-             " B=", String(B, 2),
-             " Vin=", String(Vin, 4),
-             " Vout=", String(Vout, 5),
-             " Rs=", String(Rserie, 2),
-             " Rntc=", String(Rntc, 2),
-             " Temp=", String(tempC, 2), "°C\r");
+  LOG_INFO("CH", String(channel),
+           " R0=", String(R0, 2),
+           " T0=", String(T0_K, 2), "K",
+           " B=", String(B, 2),
+           " Vin=", String(Vin, 4),
+           " Vout=", String(Vout, 5),
+           " Rs=", String(Rserie, 2),
+           " Rntc=", String(Rntc, 2),
+           " Temp=", String(tempC, 2), "°C\r");
 
-    return tempC;
+  return tempC;
 }
 //---------------------------------------------
 
@@ -964,38 +966,52 @@ String getRTC_ISO8601() {
 }
 
 void updateRTCFromNTP() {
-  if (WiFi.status() != WL_CONNECTED) {
-    LOG_ERROR("No WiFi → cannot sync RTC!\r");
-    return;
-  }
+    if (WiFi.status() != WL_CONNECTED) {
+        LOG_ERROR("No WiFi, cannot sync RTC!\r");
+        return;
+    }
 
-  if (!timeClient.update()) {
-    LOG_ERROR("NTP update failed!\r");
-    return;
-  }
+    // Lokale Instanz von WiFiUDP + NTPClient
+    WiFiUDP ntpUDP;
+    NTPClient timeClient(ntpUDP, "europe.pool.ntp.org", 0, 60000); // Update alle 60 Sekunden
 
-  unsigned long epoch = timeClient.getEpochTime();
-  if (epoch < 100000) {
-    LOG_ERROR("NTP time invalid (epoch = %lu)\r", epoch);
-    return;
-  }
+    timeClient.begin();
+    vTaskDelay(pdMS_TO_TICKS(200)); // kurz warten, UDP-Stack stabilisieren
 
-  time_t t = (time_t)epoch;
-  struct tm *ptm = gmtime(&t);
+    if (!timeClient.update()) {
+        LOG_ERROR("NTP update failed!\r");
+        return;
+    }
 
-  if (ptm == nullptr) {
-    LOG_ERROR("gmtime() returned NULL!\r");
-    return;
-  }
+    unsigned long epoch = timeClient.getEpochTime();
+    if (epoch < 100000) {
+        LOG_ERROR("NTP time invalid (epoch = %lu)\r", epoch);
+        return;
+    }
 
-  rtc.setSeconds(ptm->tm_sec);
-  rtc.setMinutes(ptm->tm_min);
-  rtc.setHours(ptm->tm_hour);
-  rtc.setDate(ptm->tm_mday);
-  rtc.setMonth(ptm->tm_mon + 1);
-  rtc.setYear(ptm->tm_year + 1900);
+    struct tm tinfo;
+    if (gmtime_r((time_t *)&epoch, &tinfo) == nullptr) {
+        LOG_ERROR("gmtime_r() failed!\r");
+        return;
+    }
 
-  LOG_INFO(("RTC Updated: " + String(getRTC_ISO8601())).c_str(), "\r");
+    // RTC nur setzen, wenn korrekt initialisiert
+    if (!rtc.begin()) {
+        LOG_ERROR("RTC not initialized!\r");
+        return;
+    }
+
+    rtc.setSeconds(tinfo.tm_sec);
+    rtc.setMinutes(tinfo.tm_min);
+    rtc.setHours(tinfo.tm_hour);
+    rtc.setDate(tinfo.tm_mday);
+    rtc.setMonth(tinfo.tm_mon + 1);
+    rtc.setYear(tinfo.tm_year + 1900);
+
+    LOG_INFO(("RTC Updated: " + String(getRTC_ISO8601())).c_str(), "\r");
+
+    // Sauberes Beenden
+    timeClient.end();
 }
 //---------------------------------------------
 
@@ -1012,19 +1028,19 @@ void bootmenu_Main() {
   String sendSingles;
 
   while (inMenu) {
-    if (system_config.debug_led){
+    if (system_config.debug_led) {
       led = "ON";
     } else {
       led = "OFF";
     }
 
-    if (system_config.deep_sleep){
+    if (system_config.deep_sleep) {
       deepsleep = "ON";
     } else {
       deepsleep = "OFF";
     }
 
-    if (system_config.send_singles){
+    if (system_config.send_singles) {
       sendSingles = "ON";
     } else {
       sendSingles = "OFF";
@@ -1064,19 +1080,19 @@ void bootmenu_Main() {
       Serial.println("Enter Size of Ringbuffer:");
       system_config.interval = readSerialLine(LINE_INPUT).toInt();
     } else if (buffer == "7") {
-      if(system_config.debug_led){
+      if (system_config.debug_led) {
         system_config.debug_led = 0;
       } else {
         system_config.debug_led = 1;
       }
     } else if (buffer == "8") {
-      if(system_config.deep_sleep){
+      if (system_config.deep_sleep) {
         system_config.deep_sleep = 0;
       } else {
         system_config.deep_sleep = 1;
       }
     } else if (buffer == "9") {
-      if(system_config.send_singles){
+      if (system_config.send_singles) {
         system_config.send_singles = 0;
       } else {
         system_config.send_singles = 1;
