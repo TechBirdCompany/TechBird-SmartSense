@@ -99,7 +99,7 @@ bool setInterrupt(uint32_t newTimeSeconds, bool repeat = true);
 // Preamble NTP
 //---------------------------------------------
 WiFiUDP ntpUDP;
-
+time_t timegm_esp32(struct tm *tm);
 NTPClient timeClient(ntpUDP, "europe.pool.ntp.org");
 //---------------------------------------------
 
@@ -429,9 +429,6 @@ void setupConnect() {
   }
 
   LOG_INFO("Initilize NTP\r");
-  //timeClient.begin();
-  //timeClient.update();
-  //vTaskDelay(pdMS_TO_TICKS(1000));
 
   updateRTCFromNTP();
 
@@ -474,7 +471,7 @@ void samplingTask(void *param) {
     mqtt_struct data;
     data.index = header.writeIndex;
     data.status = true;
-    data.timestamp = getRTCEpoch();
+    data.timestamp = rtc.getUNIX();
     data.voltage_battery = filteredBattery();
     data.internal_temperature = tmp_read_temperature(TMP1075::ConversionTime220ms);
     data.internal_offset = system_config.internal_offset;
@@ -939,30 +936,55 @@ unsigned long getRTCEpoch() {
   t.tm_mday = rtc.getDate();
   t.tm_mon = rtc.getMonth() - 1;
   t.tm_year = rtc.getYear() - 1900;
-  t.tm_isdst = -1;
+  t.tm_isdst = 0;
 
-  time_t rtcTime = mktime(&t);
+  time_t rtcTime = timegm_esp32(&t);
 
   LOG_INFO(("Epoch: " + String((unsigned long)rtcTime)).c_str(), "\r");
   return (unsigned long)rtcTime;
 }
 
+time_t timegm_esp32(struct tm *tm) {
+  // Unix Epoch 1970-01-01 00:00:00 UTC
+  const time_t EPOCH = 0;
+  int year = tm->tm_year + 1900;
+  int mon = tm->tm_mon;
+  if (mon > 11) {
+    year += mon / 12;
+    mon = mon % 12;
+  }
+  // Tage seit Epoch
+  int days = 0;
+  for (int y = 1970; y < year; y++) {
+    days += 365;
+    if ((y % 4 == 0 && y % 100 != 0) || (y % 400 == 0)) days++;
+  }
+  static const int month_days[12] = { 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
+  for (int m = 0; m < mon; m++) {
+    days += month_days[m];
+  }
+  // Schaltjahr berücksichtigen
+  if (mon > 1 && ((year % 4 == 0 && year % 100 != 0) || (year % 400 == 0))) {
+    days += 1;
+  }
+
+  time_t t = days * 86400L + tm->tm_hour * 3600L + tm->tm_min * 60L + tm->tm_sec;
+  return t;
+}
+
 String getRTC_ISO8601() {
-  unsigned long epoch = getRTCEpoch();
-  time_t t = (time_t)epoch;
-  struct tm *ptm = gmtime(&t);
+    time_t t = (time_t)rtc.getUNIX();
+    struct tm *ptm = gmtime(&t);
 
-  char buffer[25];
-  snprintf(buffer, sizeof(buffer),
-           "%04d-%02d-%02dT%02d:%02d:%02dZ",
-           ptm->tm_year + 1900, ptm->tm_mon + 1, ptm->tm_mday,
-           ptm->tm_hour, ptm->tm_min, ptm->tm_sec);
+    char buffer[25];
+    snprintf(buffer, sizeof(buffer),
+             "%04d-%02d-%02dT%02d:%02d:%02dZ",
+             ptm->tm_year + 1900, ptm->tm_mon + 1, ptm->tm_mday,
+             ptm->tm_hour, ptm->tm_min, ptm->tm_sec);
 
-  String isoTime(buffer);
-
-  LOG_INFO(("ISO Time: " + isoTime).c_str(), "\r");
-
-  return isoTime;
+    String isoTime(buffer);
+    LOG_INFO(("ISO Time: " + isoTime).c_str(), "\r");
+    return isoTime;
 }
 
 void updateRTCFromNTP() {
@@ -971,12 +993,11 @@ void updateRTCFromNTP() {
         return;
     }
 
-    // Lokale Instanz von WiFiUDP + NTPClient
     WiFiUDP ntpUDP;
-    NTPClient timeClient(ntpUDP, "europe.pool.ntp.org", 0, 60000); // Update alle 60 Sekunden
+    NTPClient timeClient(ntpUDP);
 
     timeClient.begin();
-    vTaskDelay(pdMS_TO_TICKS(200)); // kurz warten, UDP-Stack stabilisieren
+    vTaskDelay(pdMS_TO_TICKS(200));
 
     if (!timeClient.update()) {
         LOG_ERROR("NTP update failed!\r");
@@ -988,29 +1009,15 @@ void updateRTCFromNTP() {
         LOG_ERROR("NTP time invalid (epoch = %lu)\r", epoch);
         return;
     }
+    LOG_INFO("NTP Epoch Time: " + String(epoch) + "\r");
 
-    struct tm tinfo;
-    if (gmtime_r((time_t *)&epoch, &tinfo) == nullptr) {
-        LOG_ERROR("gmtime_r() failed!\r");
+    if (!rtc.setUNIX(epoch)) {
+        LOG_ERROR("RTC setUNIX failed!\r");
         return;
     }
 
-    // RTC nur setzen, wenn korrekt initialisiert
-    if (!rtc.begin()) {
-        LOG_ERROR("RTC not initialized!\r");
-        return;
-    }
+    LOG_INFO(("RTC Updated to: " + String(getRTC_ISO8601())).c_str(), "\r");
 
-    rtc.setSeconds(tinfo.tm_sec);
-    rtc.setMinutes(tinfo.tm_min);
-    rtc.setHours(tinfo.tm_hour);
-    rtc.setDate(tinfo.tm_mday);
-    rtc.setMonth(tinfo.tm_mon + 1);
-    rtc.setYear(tinfo.tm_year + 1900);
-
-    LOG_INFO(("RTC Updated: " + String(getRTC_ISO8601())).c_str(), "\r");
-
-    // Sauberes Beenden
     timeClient.end();
 }
 //---------------------------------------------
